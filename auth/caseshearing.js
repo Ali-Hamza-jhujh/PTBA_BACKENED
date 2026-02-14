@@ -4,7 +4,31 @@
   import mongoose from "mongoose";
   import AuthMiddleware from "../middlewares/authMiddleware.js";
   import hearings from "../models/hearings.js";
-  // import redisclient from "../middlewares/redix.js";
+  import redisclient from "../middlewares/redix.js";
+  const safeRedisGet = async (key) => {
+  try {
+    return redisclient?.isOpen ? await redisclient.get(key) : null;
+  } catch (err) {
+    console.error('Redis GET error:', err.message);
+    return null;
+  }
+};
+
+const safeRedisSet = async (key, time, value) => {
+  try {
+    if (redisclient?.isOpen) await redisclient.setEx(key, time, value);
+  } catch (err) {
+    console.error('Redis SET error:', err.message);
+  }
+};
+
+const safeRedisDel = async (key) => {
+  try {
+    if (redisclient?.isOpen) await redisclient.del(key);
+  } catch (err) {
+    console.error('Redis DEL error:', err.message);
+  }
+}
   const caserouter=express.Router();
   caserouter.post('/addcase',AuthMiddleware,async(req,res)=>{
       const {caseid,partyname,taxyear,noticesection,authority,remarks,dateofnoticeissue,dateofcomplaince,status}=req.body;
@@ -26,6 +50,7 @@
         }
         const register=new cases({caseid,partyname,taxyear,noticesection,authority,remarks,dateofnoticeissue,dateofcomplaince,status,user:userId})
         await register.save();
+        await safeRedisDel(`cases:${userId}`);
         return res.status(201).json({
       message: "Case registered successfully",
       data: register
@@ -44,13 +69,13 @@
        if(!mongoose.Types.ObjectId.isValid(userId)){
           return res.status(400).send({message:"Invalid user!"})
       }
-      // const allcash=await redisclient.get(`cases:${userId}`)
-  //     if(allcash){
-  //       return res.status(200).json({
-  //   message: "All cases data fetched from cash successfully!",
-  //   data: JSON.parse(allcash)
-  // })
-  //     }
+      const allcash=await safeRedisGet(`cases:${userId}`)
+      if(allcash){
+        return res.status(200).json({
+    message: "All cases data fetched from cash successfully!",
+    data: JSON.parse(allcash)
+  })
+      }
 
       const users=await user.findById(userId);
      
@@ -58,7 +83,7 @@
           return res.status(400).json({message:"User not found!"})
       }
   const allcases=await cases.find({ user: userId }).populate("user");
-  // await redisclient.setEx(`cases:${userId}`,60,JSON.stringify(allcases))
+  await safeRedisSet(`cases:${userId}`,300,JSON.stringify(allcases))
   res.status(200).json({
     message: "All cases data fetched successfully!",
     data: allcases
@@ -115,11 +140,12 @@
           message: "Hearing not found or you are not authorized to update it"
         });
       }
-      // await redisclient.del(`hearings:${userId}`)
-      // res.status(200).json({
-      //   message: "Hearing updated successfully!",
-      //   data: updatedHearing
-      // });
+      await safeRedisDel(`hearings:${userId}`)
+      await safeRedisDel(`hearings:${userId}:${updatedHearing.case._id}`);
+      res.status(200).json({
+        message: "Hearing updated successfully!",
+        data: updatedHearing
+      });
 
     } catch (error) {
       res.status(500).json({
@@ -191,7 +217,7 @@
           message: "case not found or you are not authorized to update it"
         });
       }
-    //  redisclient.del(`cases:${userId}`)
+     await safeRedisDel(`cases:${userId}`)
 
       res.status(200).json({
         message: "case updated successfully!",
@@ -228,13 +254,16 @@
         _id: hearingId,
         user: userId
       });
-//  await redisclient.del(`hearings:${userId}`)
+
       if (!hearing) {
         return res.status(404).json({
           message: "Hearing not found or you are not authorized to delete it"
         });
       }
-
+await safeRedisDel(`hearings:${userId}`);
+if (hearing.case) {
+  await safeRedisDel(`hearings:${userId}:${hearing.case}`);
+}
       res.status(200).json({ message: "Hearing deleted successfully!" });
 
     } catch (error) {
@@ -274,7 +303,7 @@
           message: "case not found or you are not authorized to delete it"
         });
       }
-      // redisclient.del(`cases:${userId}`)
+      await safeRedisDel(`cases:${userId}`)
       res.status(200).json({ message: "case deleted successfully!" });
 
     } catch (error) {
@@ -291,20 +320,20 @@
        if(!mongoose.Types.ObjectId.isValid(userId)){
           return res.status(400).send({message:"Invalid user!"})
       }
-  //     const allcash=await redisclient.get(`cases:${userId}`)
-  //     if(allcash){
-  //       return  res.status(200).json({
-  //   message: "All cases data fetched successfully!",
-  //   data: JSON.parse(allcash)
-  // })
-  //     }
+      const allcash=await safeRedisGet(`cases:${userId}`)
+      if(allcash){
+        return  res.status(200).json({
+    message: "All cases data fetched successfully!",
+    data: JSON.parse(allcash)
+  })
+      }
       const users=await user.findById(userId);
      
       if(!users){
           return res.status(400).json({message:"User not found!"})
       }
   const allcases=await cases.find({ user: userId }).populate("user");
-  // await redisclient.setEx(`cases:${userId}`,60,JSON.stringify(allcases))
+  await safeRedisSet(`cases:${userId}`,300,JSON.stringify(allcases))
   res.status(200).json({
     message: "All cases data fetched successfully!",
     data: allcases
@@ -338,6 +367,8 @@
       }
           const hearindall= new hearings({hearingdate,hearingremarks,case:caseId,user: userId,issent:false});
           await hearindall.save();
+          await safeRedisDel(`hearings:${userId}`);
+          await safeRedisDel(`hearings:${userId}:${caseId}`);
           res.status(201).json({ message: "Hearing saved successfully!", data: hearindall });
 
         
@@ -357,20 +388,20 @@
           if(!mongoose.Types.ObjectId.isValid(userId)){
           return res.status(400).send({message:"Invalid user!"})
       }
-  //     const hearingcash=await redisclient.get(`hearings:${userId}`)
-  //     if(hearingcash){
-  //        return res.status(200).json({
-  //   message: "All hearings data fetched successfully!",
-  //   data: JSON.parse(hearingcash)
-  // })
-  //     }
+      const hearingcash=await safeRedisGet(`hearings:${userId}`)
+      if(hearingcash){
+         return res.status(200).json({
+    message: "All hearings data fetched successfully!",
+    data: JSON.parse(hearingcash)
+  })
+      }
   
       const users=await user.findById(userId);
       if(!users){
           return res.status(400).json({message:"User not found!"})
       }
   const allhearings=await hearings.find({ user: userId }).populate("case").populate("user");
-  // await redisclient.setEx(`hearings:${userId}`,60,JSON.stringify(allhearings))
+  await safeRedisSet(`hearings:${userId}`,300,JSON.stringify(allhearings))
   res.status(200).json({
     message: "All hearings data fetched successfully!",
     data: allhearings
@@ -396,20 +427,20 @@
       if(!mongoose.Types.ObjectId.isValid(userId)){
           return res.status(400).send({message:"Invalid user!"})
       }
-  //      const hearingcash=await redisclient.get(`hearings:${userId}:${caseid}`)
-  //     if(hearingcash){
-  //        return res.status(200).json({
-  //   message: "All hearings data fetched successfully!",
-  //   data: JSON.parse(hearingcash)
-  // })
-  //     }
+       const hearingcash=await safeRedisGet(`hearings:${userId}:${caseid}`)
+      if(hearingcash){
+         return res.status(200).json({
+    message: "All hearings data fetched successfully!",
+    data: JSON.parse(hearingcash)
+  })
+      }
      
       const users=await user.findById(userId);
       if(!users){
           return res.status(400).json({message:"User not found!"})
       }
   const hearinglist=await hearings.find({ user: userId,case:caseid }).populate("case").populate("user");
-  //  await redisclient.setEx(`hearings:${userId}:${caseid}`,60,JSON.stringify(hearinglist))
+   await safeRedisSet(`hearings:${userId}:${caseid}`,300,JSON.stringify(hearinglist))
     if (hearinglist.length === 0) {
         return res.status(404).json({ message: "No hearings found for this case" });
       }

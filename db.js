@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import dotenv from 'dotenv'
 dotenv.config();
- const MONGO_URL =process.env.MONGO_URL|| "mongodb+srv://ali-hamza:aidasyou.123@cluster0.4hnk97j.mongodb.net/ptba?retryWrites=true&w=majority"
+ const MONGO_URL =process.env.MONGO_URL
 const ConnectToMongo=async()=>{
     try{
      await mongoose.connect(MONGO_URL);

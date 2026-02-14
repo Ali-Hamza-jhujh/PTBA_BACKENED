@@ -8,6 +8,7 @@ const router=express.Router();
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcrypt'
 import user from "../models/user.js";
+import rateLimit from 'express-rate-limit'
 dotenv.config();
 router.post('/register',async(req,res)=>{
     try{
@@ -95,8 +96,16 @@ router.post('/setpassword', async (req, res) => {
     return res.status(500).json({ message: error.message });
   }
 });
-
-router.post('/login', async(req, res) => {
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, 
+  max: 10,
+  message: {
+    message: "Too many login attempts. Please try again after 15 minutes."
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+router.post('/login',loginLimiter, async(req, res) => {
     const { cnic, password } = req.body;
     try {
         if (!cnic || !password) {
@@ -114,7 +123,12 @@ router.post('/login', async(req, res) => {
         if (newuser.isregected) {
             return res.status(400).json({ message: "You are rejected by admin!" });
         }
-        const corectpassword=bcrypt.compare(password,newuser.passwords);
+        if (!newuser.passwords || !newuser.setpassword) {
+                return res.status(400).json({ 
+              message: "Please set your password first. Check your email for the password setup link." 
+               });
+              }
+        const corectpassword=await bcrypt.compare(password,newuser.passwords);
         if (!corectpassword) {
             return res.status(400).json({ message: "Wrong username or password" });
         }
@@ -152,4 +166,75 @@ router.get('/alluers',AuthMiddleware,async(req,res)=>{
         res.status(500).json({ message: error.message });
     }
 })
+
+// ======================================================
+// ✅ UPDATE PROFILE ROUTE - CORRECT VERSION
+// ======================================================
+
+router.put('/update', AuthMiddleware, async(req, res) => {
+    try {
+        const userId = req.user.id;
+        
+        const { name, email, phone, address, city, businesName } = req.body;
+        
+        if (!name || !email) {
+            return res.status(400).json({ 
+                message: "Name and email are required!" 
+            });
+        }
+        
+        const existingUser = await user.findById(userId);
+        
+        if (!existingUser) {
+            return res.status(404).json({ 
+                message: "User not found!" 
+            });
+        }
+        
+        if (email !== existingUser.email) {
+            const emailExists = await user.findOne({ 
+                email, 
+                _id: { $ne: userId } 
+            });
+            
+            if (emailExists) {
+                return res.status(400).json({ 
+                    message: "Email already in use!" 
+                });
+            }
+        }
+        const updatedUser = await user.findByIdAndUpdate(
+            userId,
+            {
+                name,
+                email,
+                phone,
+                address,
+                city,
+                businesName
+            },
+            { new: true } 
+        );
+        
+        res.status(200).json({
+            message: "Profile updated successfully!",
+            user: {
+                _id: updatedUser._id,
+                name: updatedUser.name,
+                email: updatedUser.email,
+                phone: updatedUser.phone,
+                address: updatedUser.address,
+                city: updatedUser.city,
+                role: updatedUser.role,
+                businesName: updatedUser.businesName
+            }
+        });
+        
+    } catch (error) {
+        console.error('Update profile error:', error);
+        res.status(500).json({ 
+            message: error.message 
+        });
+    }
+});
 export default router
