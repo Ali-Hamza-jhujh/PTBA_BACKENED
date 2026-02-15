@@ -10,7 +10,7 @@ import compression from "compression";
 dotenv.config();
 
 const app = express();
-
+app.set('trust proxy', 1);
 // ✅ PROPER CORS CONFIGURATION
 const corsOptions = {
   origin: [
