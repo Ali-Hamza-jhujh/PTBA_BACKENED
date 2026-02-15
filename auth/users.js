@@ -46,7 +46,7 @@ router.post('/accept/:id',AuthMiddleware, async (req, res) => {
 
     const token = jwt.sign({ id: userDoc._id }, process.env.SECRET_KEY, { expiresIn: "1h" });
 
-    const link = `http://localhost:3000/setpassword?token=${token}`;
+    const link = `${process.env.FRONTENED_URL}/setpassword?token=${token}`;
     await Sendmail(link, userDoc.email);
     res.status(200).send({ message: "Request accepted successfully, email sent!" });
   } catch (error) {
