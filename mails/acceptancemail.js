@@ -2,6 +2,7 @@ import dotenv from 'dotenv'
 import nodemailer from 'nodemailer';
 dotenv.config();
 const Sendmail=async(link,to)=>{
+    
     try{
     const transporter=nodemailer.createTransport({
         service:"gmail",
